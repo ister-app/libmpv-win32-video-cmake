@@ -141,6 +141,26 @@ ExternalProject_Add(ffmpeg
         --enable-decoder=webp
         --enable-decoder=jpegls
 
+        # The player streams HLS from its server: that needs the hls demuxer
+        # and, for the segments, mpegts. Without them ffmpeg does not even
+        # recognize the playlist and mpv falls back to treating it as a list of
+        # files it then cannot demux either. Video parsers are needed to cut
+        # the elementary streams inside those segments; the decoders themselves
+        # come in as dependencies of --enable-hwaccels.
+        --enable-demuxer=hls
+        --enable-demuxer=mpegts
+        --enable-demuxer=webvtt
+        --enable-decoder=webvtt
+        --enable-parser=h264
+        --enable-parser=hevc
+        --enable-parser=vp8
+        --enable-parser=vp9
+        --enable-parser=av1
+        --enable-parser=mpegvideo
+        --enable-parser=mpeg4video
+        --enable-parser=vc1
+        --enable-parser=webvtt
+
         --enable-demuxer=aac
         --enable-demuxer=ac3
         --enable-demuxer=aiff
