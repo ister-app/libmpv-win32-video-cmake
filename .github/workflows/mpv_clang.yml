@@ -248,7 +248,14 @@ jobs:
           **Workflow run**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           END
           )
-          id=$(curl -H "Authorization: Bearer $GH_TOKEN" $CURL_RETRIES -s -X POST -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$GITHUB_REPOSITORY/releases -d @- <<END | jq -r '.id'
+          api() { curl -H "Authorization: Bearer $GH_TOKEN" $CURL_RETRIES -s --fail-with-body "$@"; }
+
+          # Reuse today's release if a previous run already created it: the POST
+          # below fails on an existing tag, and an empty id turns every asset
+          # upload into a silent "Not Found".
+          id=$(api https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$short_date | jq -r '.id // empty' || true)
+          if [ -z "$id" ]; then
+            id=$(api -X POST -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$GITHUB_REPOSITORY/releases -d @- <<END | jq -r '.id'
           {
             "tag_name": "$short_date",
             "name": "$short_date",
@@ -256,4 +263,15 @@ jobs:
           }
           END
           )
-          for file in release/*.7z; do curl -H "Authorization: Bearer $GH_TOKEN" $CURL_RETRIES -X POST -H "Accept: application/vnd.github.v3+json" -H "Content-Type: $(file -b --mime-type $file)" https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$(basename $file) --data-binary @$file; done
+          fi
+          [ -n "$id" ] && [ "$id" != "null" ] || { echo "could not resolve a release id"; exit 1; }
+          for file in release/*.7z; do
+            name=$(basename $file)
+            # Replace an asset from an earlier run of the same day.
+            old=$(api https://api.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets | jq -r ".[] | select(.name==\"$name\") | .id" || true)
+            if [ -n "$old" ]; then
+              api -X DELETE https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$old
+            fi
+            api -X POST -H "Accept: application/vnd.github.v3+json" -H "Content-Type: $(file -b --mime-type $file)" "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" --data-binary @$file > /dev/null
+            echo "uploaded $name"
+          done
